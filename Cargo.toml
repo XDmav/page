@@ -9,3 +9,9 @@ axum = "0"
 serde = "1"
 mime_guess = "2"
 tokio-util = { version = "0", features = ["io"] }
+
+[profile.release]
+strip = "debuginfo"
+panic = "abort"
+opt-level = 3
+codegen-units = 1
