@@ -9,35 +9,44 @@ body {
 }
 
 .top_bar {
+    display: flex;
+    align-items: center;
     background-color: rgb(35, 35, 40);
     text-decoration: none;
     padding: 5px 20px;
 }
 
-.top_text {
-    display: inline;
-    vertical-align: middle;
-    padding: 5px;
-    font-weight: 500;
-}
-
 .top_link,
 .top_link:visited {
     color: inherit;
+    text-decoration: none;
 }
 
 .top_link:hover {
     color: lightgray;
 }
 
-.top_link {
-    text-decoration: none;
-}
-
 .top_image {
     vertical-align: middle;
-    margin: 0;
     width: 50px;
+}
+
+.top_text {
+    vertical-align: middle;
+    padding: 0 5px;
+    font-weight: 500;
+    font-size: xx-large;
+}
+
+.top_login_box {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
+.top_login_text {
+    font-size: large;
+    padding: 0 5px;
 }
 
 .main_text {

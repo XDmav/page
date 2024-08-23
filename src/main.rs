@@ -21,24 +21,38 @@ async fn main() {
 		.route("/", get(home))
 		.route("/icons/:name", get(get_image))
 		.route("/styles/:name", get(get_style))
+		.route("/login", get(login))
+		.route("/registration", get(registration))
 		.fallback(fallback);
 
 	let listener = TcpListener::bind("127.0.0.1:2000").await.unwrap();
 	serve(listener, app).await.unwrap();
 }
 
+async fn get_final_html(file_name: &str) -> String {
+	let contents = fs::read_to_string(file_name).await.unwrap();
+	let header = fs::read_to_string("pages/header.html").await.unwrap();
+	header.replace("{}", contents.as_str())
+}
+
 async fn home() -> impl IntoResponse {
-	let contents = fs::read_to_string("pages/index.html").await.unwrap();
-	Html(contents)
+	Html(get_final_html("pages/index.html").await)
+}
+
+async fn login() -> impl IntoResponse {
+	Html(get_final_html("pages/login.html").await)
+}
+
+async fn registration() -> impl IntoResponse {
+	Html(get_final_html("pages/registration.html").await)
 }
 
 async fn fallback() -> (StatusCode, Html<String>) {
-	let contents = fs::read_to_string("pages/not_found.html").await.unwrap();
-	(StatusCode::NOT_FOUND, Html(contents))
+	(StatusCode::NOT_FOUND, Html(get_final_html("pages/not_found.html").await))
 }
 
 async fn bad_request() -> (StatusCode, Html<String>) {
-	(StatusCode::BAD_REQUEST, Html("File name couldn't be determined".to_string()))
+	(StatusCode::BAD_REQUEST, Html(get_final_html("pages/bad_request.html").await))
 }
 
 async fn get_image(
