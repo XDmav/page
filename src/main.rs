@@ -1,6 +1,19 @@
 use std::path::PathBuf;
-use axum::{{Router, serve}, body::Body, extract::Path, http::{header, StatusCode}, Json, response::{Html, IntoResponse}, routing::get};
+use std::sync::Arc;
+use std::time::Duration;
+use axum::{
+	{Router, serve}, 
+	body::Body, 
+	extract::Path, 
+	Form, 
+	http::{header, StatusCode}, 
+	response::{Html, IntoResponse, Redirect}, 
+	routing::get,
+};
+use axum::extract::State;
 use serde::Deserialize;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use tokio::{
 	fs,
 	fs::File,
@@ -9,14 +22,27 @@ use tokio::{
 };
 use tokio_util::io::ReaderStream;
 
+struct SharedStateStruct {
+	pool: PgPool
+}
+
 #[tokio::main]
 async fn main() {
+	let pool = PgPoolOptions::new()
+		.max_connections(20)
+		.min_connections(2)
+		.idle_timeout(Duration::new(60, 0))
+		.connect("postgres://postgres:293658@localhost/web_page_db").await.unwrap();
+	let shared_state = Arc::new(SharedStateStruct{pool});
+	
 	let app = Router::new()
 		.route("/", get(home))
 		.route("/icons/:name", get(get_image))
 		.route("/styles/:name", get(get_style))
+		.route("/scripts/:name", get(get_script))
 		.route("/login", get(login).post(post_login))
 		.route("/registration", get(registration).post(post_registration))
+		.with_state(shared_state)
 		.fallback(fallback);
 
 	let listener = TcpListener::bind("127.0.0.1:2000").await.unwrap();
@@ -47,12 +73,13 @@ struct UserInfo {
 	password: String,
 }
 
-async fn post_login(Json(payload): Json<UserInfo>) -> impl IntoResponse {
-	
+async fn post_login(State(state): State<Arc<SharedStateStruct>>, Form(payload): Form<UserInfo>) -> impl IntoResponse {
+	([(header::SET_COOKIE, "SECURITY-COOKIE=wwwwww")], Redirect::to("/"))
 }
 
-async fn post_registration(Json(payload): Json<UserInfo>) -> impl IntoResponse {
+async fn post_registration(State(state): State<Arc<SharedStateStruct>>, Form(payload): Form<UserInfo>) -> impl IntoResponse {
 	
+	registration().await
 }
 
 async fn fallback() -> (StatusCode, Html<String>) {
@@ -96,18 +123,37 @@ async fn get_style(
 ) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
 	let mut buf = PathBuf::from("styles");
 	buf.push(&name);
+
+	let headers = [(header::CONTENT_TYPE, "text/css".to_string())];
+	let body = read_file_to_string(&buf).await?;
+
+	Ok((headers, body))
+}
+
+async fn get_script(
+	Path(name): Path<String>
+) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
+	let mut buf = PathBuf::from("scripts");
+	buf.push(&name);
+
+	let headers = [(header::CONTENT_TYPE, "text/javascript".to_string())];
+	let body = read_file_to_string(&buf).await?;
+
+	Ok((headers, body))
+}
+
+async fn read_file_to_string(buf: &PathBuf) -> Result<String, (StatusCode, Html<String>)> {
 	let mut file = get_file(&buf).await?;
 
 	let mut body = String::new();
 	file.read_to_string(&mut body).await.unwrap();
-
-	let headers = [(header::CONTENT_TYPE, "text/css".to_string())];
-	Ok((headers, body))
+	
+	Ok(body)
 }
 
 async fn get_file(path: &PathBuf) -> Result<File, (StatusCode, Html<String>)> {
 	match File::open(&path).await {
 		Ok(file) => Ok(file),
-		Err(_) => return Err(fallback().await)
+		Err(_) => Err(fallback().await)
 	}
 }

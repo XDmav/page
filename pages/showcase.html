@@ -12,6 +12,7 @@
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Moderustic:wght@300..800&display=swap">
+	<script src="/scripts/htmx.min.js"></script>
 	<title>IS devs</title>
 </head>
 <body>
@@ -39,18 +40,18 @@
 		<h1 class="header_text">
 			Login
 		</h1>
-		<form name="logForm">
+		<form name="logForm" method="post">
 			<div>
 				<label>
-					<input class="input_box" id="login_email" name="email" type="email" autocomplete="email" placeholder="Email">
+					<input class="input_box" id="email" name="email" type="email" autocomplete="email" placeholder="Email">
 				</label>
 			</div>
 			<div>
 				<label>
-					<input class="input_box" id="login_password" name="password" type="password" autocomplete="password" placeholder="Password">
+					<input class="input_box" id="password" name="password" type="password" autocomplete="password" placeholder="Password">
 				</label>
 			</div>
-			<button type="button" class="input_button">
+			<button class="input_button">
 				Log in
 			</button>
 		</form>
