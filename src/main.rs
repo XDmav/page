@@ -1,12 +1,6 @@
 use std::path::PathBuf;
-use axum::{
-	{Router, serve},
-	body::Body,
-	extract::Path,
-	http::{header, StatusCode},
-	response::{Html, IntoResponse},
-	routing::get,
-};
+use axum::{{Router, serve}, body::Body, extract::Path, http::{header, StatusCode}, Json, response::{Html, IntoResponse}, routing::get};
+use serde::Deserialize;
 use tokio::{
 	fs,
 	fs::File,
@@ -21,8 +15,8 @@ async fn main() {
 		.route("/", get(home))
 		.route("/icons/:name", get(get_image))
 		.route("/styles/:name", get(get_style))
-		.route("/login", get(login))
-		.route("/registration", get(registration))
+		.route("/login", get(login).post(post_login))
+		.route("/registration", get(registration).post(post_registration))
 		.fallback(fallback);
 
 	let listener = TcpListener::bind("127.0.0.1:2000").await.unwrap();
@@ -45,6 +39,20 @@ async fn login() -> impl IntoResponse {
 
 async fn registration() -> impl IntoResponse {
 	Html(get_final_html("pages/registration.html").await)
+}
+
+#[derive(Deserialize)]
+struct UserInfo {
+	email: String,
+	password: String,
+}
+
+async fn post_login(Json(payload): Json<UserInfo>) -> impl IntoResponse {
+	
+}
+
+async fn post_registration(Json(payload): Json<UserInfo>) -> impl IntoResponse {
+	
 }
 
 async fn fallback() -> (StatusCode, Html<String>) {
