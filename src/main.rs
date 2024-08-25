@@ -2,6 +2,7 @@ use std::{
 	path::PathBuf,
 	sync::Arc,
 	time::Duration,
+	io::Error,
 };
 use axum::{
 	{Router, serve}, 
@@ -12,8 +13,7 @@ use axum::{
 	response::{Html, IntoResponse, Redirect}, 
 	routing::get,
 };
-use base16ct::lower;
-use rand::prelude::StdRng;
+use axum_extra::extract::cookie::CookieJar;
 use sha2::{
 	Digest,
 	Sha512
@@ -29,12 +29,15 @@ use tokio::{
 	io::AsyncReadExt,
 	net::TcpListener,
 };
-use tokio_util::io::ReaderStream;
-use serde::Deserialize;
 use rand::{
 	RngCore,
-	SeedableRng
+	SeedableRng,
+	prelude::StdRng
 };
+use tokio_util::io::ReaderStream;
+use serde::Deserialize;
+use base16ct::lower;
+use email_address::EmailAddress;
 
 struct SharedStateStruct {
 	pool: PgPool
@@ -56,29 +59,62 @@ async fn main() {
 		.route("/scripts/:name", get(get_script))
 		.route("/login", get(login).post(post_login))
 		.route("/registration", get(registration).post(post_registration))
-		.with_state(shared_state)
-		.fallback(fallback);
+		.route("/logout", get(logout))
+		.fallback(fallback)
+		.with_state(shared_state);
 
 	let listener = TcpListener::bind("127.0.0.1:2000").await.unwrap();
 	serve(listener, app).await.unwrap();
 }
 
-async fn get_final_html(file_name: &str) -> String {
-	let contents = fs::read_to_string(file_name).await.unwrap();
+async fn get_final_html(
+	file_name: &str, 
+	jar: CookieJar, 
+	state: Arc<SharedStateStruct>
+) -> String {
+	let main_body = fs::read_to_string(file_name).await.unwrap();
 	let header = fs::read_to_string("pages/header.html").await.unwrap();
-	header.replace("{}", contents.as_str())
+	let auth = match jar.get("SECURITY-COOKIE") {
+		Some(val) => {
+			let val = val.value();
+			let result = sqlx::query("SELECT user_id FROM accounts WHERE cookie = $1")
+				.bind(val)
+				.fetch_optional(&state.pool)
+				.await.unwrap();
+			
+			match result {
+				Some(_) => fs::read_to_string("pages/auth.html").await.unwrap(),
+				None => fs::read_to_string("pages/not_auth.html").await.unwrap()
+			}
+		}
+		None => fs::read_to_string("pages/not_auth.html").await.unwrap()
+	};
+	header.replace("{main_body}", main_body.as_str()).replace("{auth}", auth.as_str())
 }
 
-async fn home() -> Html<String> {
-	Html(get_final_html("pages/index.html").await)
+async fn home(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>
+) -> Html<String> {
+	Html(get_final_html("pages/index.html", jar, state).await)
 }
 
-async fn login() -> Html<String> {
-	Html(get_final_html("pages/login.html").await)
+async fn login(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>
+) -> Html<String> {
+	Html(get_final_html("pages/login.html", jar, state).await)
 }
 
-async fn registration() -> Html<String> {
-	Html(get_final_html("pages/registration.html").await)
+async fn registration(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>
+) -> Html<String> {
+	Html(get_final_html("pages/registration.html", jar, state).await)
+}
+
+async fn logout() -> impl IntoResponse {
+	([(header::SET_COOKIE, "SECURITY-COOKIE=; expires=Thu, 01 Jan 1970 00:00:00 GMT")], Redirect::to("/"))
 }
 
 #[derive(Deserialize)]
@@ -87,7 +123,11 @@ struct UserInfo {
 	password: String,
 }
 
-async fn post_login(State(state): State<Arc<SharedStateStruct>>, Form(payload): Form<UserInfo>) -> impl IntoResponse {
+async fn post_login(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>, 
+	Form(payload): Form<UserInfo>
+) -> impl IntoResponse {
 	let mut hasher = Sha512::new();
 	hasher.update(&payload.password);
 	let hash = hasher.finalize();
@@ -126,40 +166,81 @@ async fn post_login(State(state): State<Arc<SharedStateStruct>>, Form(payload): 
 			
 			match result { 
 				Ok(_) => Ok(([(header::SET_COOKIE, format!("SECURITY-COOKIE={cookie}"))], Redirect::to("/"))),
-				Err(_) => Err(login().await)
+				Err(_) => Err(login(jar, State(state)).await)
 			}
 		}
+		None => Err(login(jar, State(state)).await)
+	}
+}
+
+async fn post_registration(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>, 
+	Form(payload): Form<UserInfo>
+) -> impl IntoResponse {
+	if !EmailAddress::is_valid(&payload.email) {
+		return Err(registration(jar, State(state)).await)
+	}
+	
+	let account = sqlx::query("SELECT user_id FROM accounts WHERE email = $1")
+		.bind(&payload.email)
+		.fetch_optional(&state.pool)
+		.await.unwrap();
+	
+	match account {
+		Some(_) => Err(registration(jar, State(state)).await),
 		None => {
-			Err(login().await)
+			let mut hasher = Sha512::new();
+			hasher.update(&payload.password);
+			let hash = hasher.finalize();
+			let hex_hash = lower::encode_string(&hash);
+			
+			let result = sqlx::query("INSERT INTO accounts(email, password_hash) VALUES ($1, $2)")
+				.bind(&payload.email)
+				.bind(hex_hash)
+				.execute(&state.pool)
+				.await;
+			
+			match result {
+				Ok(_) => Ok(Redirect::to("/login")),
+				Err(_) => Err(registration(jar, State(state)).await)
+			}
 		}
 	}
 }
 
-async fn post_registration(State(_state): State<Arc<SharedStateStruct>>, Form(_payload): Form<UserInfo>) -> impl IntoResponse {
-	registration().await
+async fn fallback(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>
+) -> (StatusCode, Html<String>) {
+	(StatusCode::NOT_FOUND, Html(get_final_html("pages/not_found.html", jar, state).await))
 }
 
-async fn fallback() -> (StatusCode, Html<String>) {
-	(StatusCode::NOT_FOUND, Html(get_final_html("pages/not_found.html").await))
-}
-
-async fn bad_request() -> (StatusCode, Html<String>) {
-	(StatusCode::BAD_REQUEST, Html(get_final_html("pages/bad_request.html").await))
+async fn bad_request(
+	jar: CookieJar, 
+	State(state): State<Arc<SharedStateStruct>>
+) -> (StatusCode, Html<String>) {
+	(StatusCode::BAD_REQUEST, Html(get_final_html("pages/bad_request.html", jar, state).await))
 }
 
 async fn get_image(
+	jar: CookieJar,
+	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> impl IntoResponse {
 	let mut buf = PathBuf::from("icons");
 	buf.push(&name);
 	let filename = match buf.file_name() {
 		Some(name) => name,
-		None => return Err(bad_request().await)
+		None => return Err(bad_request(jar, State(state)).await)
 	};
-	let file = get_file(&buf).await?;
+	let file = match get_file(&buf).await {
+		Ok(file) => file,
+		Err(_) => return Err(fallback(jar, State(state)).await)
+	};
 	let content_type = match mime_guess::from_path(&name).first_raw() {
 		Some(mime) => mime,
-		None => return Err(bad_request().await)
+		None => return Err(bad_request(jar, State(state)).await)
 	};
 
 	let stream = ReaderStream::new(file);
@@ -176,30 +257,44 @@ async fn get_image(
 }
 
 async fn get_style(
+	jar: CookieJar,
+	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
 	let mut buf = PathBuf::from("styles");
 	buf.push(&name);
 
 	let headers = [(header::CONTENT_TYPE, "text/css".to_string())];
-	let body = read_file_to_string(&buf).await?;
+	let body = match read_file_to_string(&buf).await { 
+		Ok(body) => body,
+		Err(_) => {
+			return Err(fallback(jar, State(state)).await)
+		}
+	};
 
 	Ok((headers, body))
 }
 
 async fn get_script(
+	jar: CookieJar,
+	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
 	let mut buf = PathBuf::from("scripts");
 	buf.push(&name);
 
 	let headers = [(header::CONTENT_TYPE, "text/javascript".to_string())];
-	let body = read_file_to_string(&buf).await?;
+	let body = match read_file_to_string(&buf).await {
+		Ok(body) => body,
+		Err(_) => {
+			return Err(fallback(jar, State(state)).await)
+		}
+	};
 
 	Ok((headers, body))
 }
 
-async fn read_file_to_string(buf: &PathBuf) -> Result<String, (StatusCode, Html<String>)> {
+async fn read_file_to_string(buf: &PathBuf) -> Result<String, Error> {
 	let mut file = get_file(&buf).await?;
 
 	let mut body = String::new();
@@ -208,9 +303,6 @@ async fn read_file_to_string(buf: &PathBuf) -> Result<String, (StatusCode, Html<
 	Ok(body)
 }
 
-async fn get_file(path: &PathBuf) -> Result<File, (StatusCode, Html<String>)> {
-	match File::open(&path).await {
-		Ok(file) => Ok(file),
-		Err(_) => Err(fallback().await)
-	}
+async fn get_file(path: &PathBuf) -> Result<File, Error> {
+	Ok(File::open(&path).await?)
 }
