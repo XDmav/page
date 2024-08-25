@@ -1,19 +1,28 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+	path::PathBuf,
+	sync::Arc,
+	time::Duration,
+};
 use axum::{
 	{Router, serve}, 
 	body::Body, 
-	extract::Path, 
+	extract::{Path, State},
 	Form, 
 	http::{header, StatusCode}, 
 	response::{Html, IntoResponse, Redirect}, 
 	routing::get,
 };
-use axum::extract::State;
-use serde::Deserialize;
-use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use base16ct::lower;
+use rand::prelude::StdRng;
+use sha2::{
+	Digest,
+	Sha512
+};
+use sqlx::{
+	PgPool,
+	postgres::PgPoolOptions,
+	Row
+};
 use tokio::{
 	fs,
 	fs::File,
@@ -21,6 +30,11 @@ use tokio::{
 	net::TcpListener,
 };
 use tokio_util::io::ReaderStream;
+use serde::Deserialize;
+use rand::{
+	RngCore,
+	SeedableRng
+};
 
 struct SharedStateStruct {
 	pool: PgPool
@@ -55,15 +69,15 @@ async fn get_final_html(file_name: &str) -> String {
 	header.replace("{}", contents.as_str())
 }
 
-async fn home() -> impl IntoResponse {
+async fn home() -> Html<String> {
 	Html(get_final_html("pages/index.html").await)
 }
 
-async fn login() -> impl IntoResponse {
+async fn login() -> Html<String> {
 	Html(get_final_html("pages/login.html").await)
 }
 
-async fn registration() -> impl IntoResponse {
+async fn registration() -> Html<String> {
 	Html(get_final_html("pages/registration.html").await)
 }
 
@@ -74,11 +88,54 @@ struct UserInfo {
 }
 
 async fn post_login(State(state): State<Arc<SharedStateStruct>>, Form(payload): Form<UserInfo>) -> impl IntoResponse {
-	([(header::SET_COOKIE, "SECURITY-COOKIE=wwwwww")], Redirect::to("/"))
+	let mut hasher = Sha512::new();
+	hasher.update(&payload.password);
+	let hash = hasher.finalize();
+	let hex_hash = lower::encode_string(&hash);
+	
+	let account = sqlx::query("SELECT user_id FROM accounts WHERE email = $1 AND password_hash = $2")
+		.bind(&payload.email)
+		.bind(hex_hash)
+		.fetch_optional(&state.pool)
+		.await.unwrap();
+	
+	match account {
+		Some(account) => {
+			let mut buf = [0; 64];
+			let cookie = loop {
+				let mut rng = StdRng::from_entropy();
+				rng.fill_bytes(&mut buf);
+				let cookie = lower::encode_string(&buf);
+				
+				let result = sqlx::query("SELECT user_id FROM accounts WHERE cookie = $1")
+					.bind(&cookie)
+					.fetch_optional(&state.pool)
+					.await.unwrap();
+				
+				if let None = result {
+					break cookie
+				}
+			};
+			
+			let id: i32 = account.get("user_id");
+			let result = sqlx::query("UPDATE accounts SET cookie = $1 WHERE user_id = $2")
+				.bind(&cookie)
+				.bind(id)
+				.execute(&state.pool)
+				.await;
+			
+			match result { 
+				Ok(_) => Ok(([(header::SET_COOKIE, format!("SECURITY-COOKIE={cookie}"))], Redirect::to("/"))),
+				Err(_) => Err(login().await)
+			}
+		}
+		None => {
+			Err(login().await)
+		}
+	}
 }
 
-async fn post_registration(State(state): State<Arc<SharedStateStruct>>, Form(payload): Form<UserInfo>) -> impl IntoResponse {
-	
+async fn post_registration(State(_state): State<Arc<SharedStateStruct>>, Form(_payload): Form<UserInfo>) -> impl IntoResponse {
 	registration().await
 }
 
