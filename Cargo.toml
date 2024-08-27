@@ -4,17 +4,18 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.39.3", features = ["full"] }
 axum = "0"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1.0.209", features = ["derive"] }
 mime_guess = "2"
 tokio-util = { version = "0", features = ["io"] }
-sqlx = { version = "0", features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "<0.8.1", features = ["runtime-tokio", "postgres"] }
 sha2 = "0"
 rand = "0"
 base16ct = { version = "0", features = ["alloc"] }
 email_address = "0"
 axum-extra = { version = "0", features = ["cookie"] }
+time = "0"
 
 [profile.release]
 strip = "debuginfo"

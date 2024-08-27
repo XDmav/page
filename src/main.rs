@@ -13,7 +13,10 @@ use axum::{
 	response::{Html, IntoResponse, Redirect}, 
 	routing::get,
 };
-use axum_extra::extract::cookie::CookieJar;
+use axum_extra::extract::cookie::{
+	Cookie,
+	CookieJar,
+};
 use sha2::{
 	Digest,
 	Sha512
@@ -35,6 +38,7 @@ use rand::{
 	prelude::StdRng
 };
 use tokio_util::io::ReaderStream;
+use time::OffsetDateTime;
 use serde::Deserialize;
 use base16ct::lower;
 use email_address::EmailAddress;
@@ -113,8 +117,11 @@ async fn registration(
 	Html(get_final_html("pages/registration.html", jar, state).await)
 }
 
-async fn logout() -> impl IntoResponse {
-	([(header::SET_COOKIE, "SECURITY-COOKIE=; expires=Thu, 01 Jan 1970 00:00:00 GMT")], Redirect::to("/"))
+async fn logout(jar: CookieJar) -> impl IntoResponse {
+	let mut cookie = Cookie::new("SECURITY-COOKIE", "");
+	cookie.set_secure(true);
+	cookie.set_expires(OffsetDateTime::UNIX_EPOCH);
+	(jar.add(cookie), Redirect::to("/"))
 }
 
 #[derive(Deserialize)]
@@ -152,7 +159,7 @@ async fn post_login(
 					.fetch_optional(&state.pool)
 					.await.unwrap();
 				
-				if let None = result {
+				if result.is_none() {
 					break cookie
 				}
 			};
@@ -165,7 +172,15 @@ async fn post_login(
 				.await;
 			
 			match result { 
-				Ok(_) => Ok(([(header::SET_COOKIE, format!("SECURITY-COOKIE={cookie}"))], Redirect::to("/"))),
+				Ok(_) => {
+					let mut cookie = Cookie::new("SECURITY-COOKIE", cookie);
+					cookie.set_secure(true);
+					let mut now = OffsetDateTime::now_utc();
+					now += Duration::new(31104000, 0);
+					cookie.set_expires(now);
+					
+					Ok((jar.add(cookie), Redirect::to("/")))
+				}
 				Err(_) => Err(login(jar, State(state)).await)
 			}
 		}
@@ -295,7 +310,7 @@ async fn get_script(
 }
 
 async fn read_file_to_string(buf: &PathBuf) -> Result<String, Error> {
-	let mut file = get_file(&buf).await?;
+	let mut file = get_file(buf).await?;
 
 	let mut body = String::new();
 	file.read_to_string(&mut body).await.unwrap();
@@ -304,5 +319,5 @@ async fn read_file_to_string(buf: &PathBuf) -> Result<String, Error> {
 }
 
 async fn get_file(path: &PathBuf) -> Result<File, Error> {
-	Ok(File::open(&path).await?)
+	File::open(&path).await
 }
