@@ -4,6 +4,13 @@ use std::{
 	time::Duration,
 	io::Error,
 };
+use tokio::{
+	fs,
+	fs::File,
+	io::AsyncReadExt,
+	net::TcpListener,
+};
+use tokio_util::io::ReaderStream;
 use axum::{
 	{Router, serve}, 
 	body::Body, 
@@ -17,29 +24,27 @@ use axum_extra::extract::cookie::{
 	Cookie,
 	CookieJar,
 };
-use sha2::{
-	Digest,
-	Sha512
+use tower::{ServiceBuilder};
+use tower_http::{
+	timeout::TimeoutLayer, 
+	compression::CompressionLayer,
 };
+use serde::Deserialize;
 use sqlx::{
 	PgPool,
 	postgres::PgPoolOptions,
 	Row
 };
-use tokio::{
-	fs,
-	fs::File,
-	io::AsyncReadExt,
-	net::TcpListener,
+use sha2::{
+	Digest,
+	Sha512
 };
 use rand::{
 	RngCore,
 	SeedableRng,
 	prelude::StdRng
 };
-use tokio_util::io::ReaderStream;
 use time::OffsetDateTime;
-use serde::Deserialize;
 use base16ct::lower;
 use email_address::EmailAddress;
 
@@ -65,8 +70,14 @@ async fn main() {
 		.route("/registration", get(registration).post(post_registration))
 		.route("/logout", get(logout))
 		.fallback(fallback)
-		.with_state(shared_state);
-
+		.with_state(shared_state)
+		.layer(
+			ServiceBuilder::new()
+				.concurrency_limit(10)
+				.layer(TimeoutLayer::new(Duration::new(10, 0)))
+				.layer(CompressionLayer::new())
+		);
+	
 	let listener = TcpListener::bind("127.0.0.1:2000").await.unwrap();
 	serve(listener, app).await.unwrap();
 }
