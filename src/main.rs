@@ -28,7 +28,10 @@ use tower::{ServiceBuilder};
 use tower_http::{
 	timeout::TimeoutLayer, 
 	compression::CompressionLayer,
+	trace::TraceLayer,
 };
+use tracing::Level;
+use tracing_subscriber::fmt;
 use serde::Deserialize;
 use sqlx::{
 	PgPool,
@@ -54,6 +57,8 @@ struct SharedStateStruct {
 
 #[tokio::main]
 async fn main() {
+	fmt().with_max_level(Level::TRACE).init();
+	
 	let pool = PgPoolOptions::new()
 		.max_connections(20)
 		.min_connections(2)
@@ -74,6 +79,7 @@ async fn main() {
 		.layer(
 			ServiceBuilder::new()
 				.concurrency_limit(10)
+				.layer(TraceLayer::new_for_http())
 				.layer(TimeoutLayer::new(Duration::new(10, 0)))
 				.layer(CompressionLayer::new())
 		);
