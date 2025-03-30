@@ -9,12 +9,12 @@ tokio-util = { version = "0", features = ["io"] }
 axum = { version = "0", features = ["http1", "http2", "form", "tokio"], default-features = false }
 axum-extra = { version = "0", features = ["cookie"], default-features = false }
 tower = { version = "0.5.0", features = ["limit"] }
-tower-http = { version = "0.5.2", features = ["timeout", "compression-full", "trace"] }
+tower-http = { version = "0.6.2", features = ["timeout", "compression-full", "trace"] }
 serde = { version = "1.0.209", features = ["derive"], default-features = false }
 mime_guess = "2"
-sqlx = { version = "<0.8.1", features = ["runtime-tokio", "postgres"], default-features = false }
+sqlx = { version = "0.8.1", features = ["runtime-tokio", "postgres"], default-features = false }
 sha2 = { version = "0", default-features = false }
-rand = { version = "0", default-features = false }
+rand = { version = "0", features = ["std_rng", "os_rng"], default-features = false }
 base16ct = { version = "0", features = ["alloc"], default-features = false }
 email_address = { version = "0", default-features = false }
 time = { version = "0", default-features = false }

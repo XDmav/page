@@ -42,13 +42,11 @@ use sha2::{
 	Digest,
 	Sha512
 };
-use rand::{
-	RngCore,
-	prelude::StdRng
-};
+use rand::{RngCore, SeedableRng};
 use time::OffsetDateTime;
 use base16ct::lower;
 use email_address::EmailAddress;
+use rand::rngs::StdRng;
 
 struct SharedStateStruct {
 	pool: PgPool
@@ -166,7 +164,7 @@ async fn post_login(
 		Some(account) => {
 			let mut buf = [0; 64];
 			let cookie = loop {
-				let mut rng = StdRng::from_entropy();
+				let mut rng = StdRng::from_os_rng();
 				rng.fill_bytes(&mut buf);
 				let cookie = lower::encode_string(&buf);
 				
