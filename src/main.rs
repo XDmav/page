@@ -65,9 +65,9 @@ async fn main() {
 	
 	let app = Router::new()
 		.route("/", get(home))
-		.route("/icons/:name", get(get_image))
-		.route("/styles/:name", get(get_style))
-		.route("/scripts/:name", get(get_script))
+		.route("/icons/{name}", get(get_image))
+		.route("/styles/{name}", get(get_style))
+		.route("/scripts/{name}", get(get_script))
 		.route("/login", get(login).post(post_login))
 		.route("/registration", get(registration).post(post_registration))
 		.route("/logout", get(logout))
