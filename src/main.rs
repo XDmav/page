@@ -44,7 +44,6 @@ use sha2::{
 };
 use rand::{
 	RngCore,
-	SeedableRng,
 	prelude::StdRng
 };
 use time::OffsetDateTime;
@@ -330,7 +329,7 @@ async fn read_file_to_string(buf: &PathBuf) -> Result<String, Error> {
 	let mut file = get_file(buf).await?;
 
 	let mut body = String::new();
-	file.read_to_string(&mut body).await.unwrap();
+	file.read_to_string(&mut body).await?;
 	
 	Ok(body)
 }
