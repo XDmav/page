@@ -56,11 +56,23 @@ struct SharedStateStruct {
 async fn main() {
 	fmt().with_max_level(Level::TRACE).init();
 	
+	let mut text = String::new();
+	File::open("Secret")
+		.await
+		.unwrap()
+		.read_to_string(&mut text)
+		.await
+		.unwrap();
+	let text_vec: Vec<&str> = text.split("\n").collect();
+	
+	let key = text_vec[0];
+	let url = format!("postgres://web:{key}@localhost/web_page_db");
+	
 	let pool = PgPoolOptions::new()
 		.max_connections(20)
 		.min_connections(2)
 		.idle_timeout(Duration::new(60, 0))
-		.connect("postgres://postgres:293658@localhost/web_page_db").await.unwrap();
+		.connect(url.as_ref()).await.unwrap();
 	let shared_state = Arc::new(SharedStateStruct{pool});
 	
 	let app = Router::new()
