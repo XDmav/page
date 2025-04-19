@@ -257,8 +257,14 @@ async fn get_image(
 	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> impl IntoResponse {
+	let sanitized_name = sanitize_filename::sanitize(&name);
+	if sanitized_name.is_empty() || sanitized_name != name {
+		return Err(bad_request(jar, State(state)).await);
+	}
+	
 	let mut buf = PathBuf::from("icons");
-	buf.push(&name);
+	buf.push(&sanitized_name);
+	
 	let filename = match buf.file_name() {
 		Some(name) => name,
 		None => return Err(bad_request(jar, State(state)).await)
@@ -290,6 +296,11 @@ async fn get_style(
 	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
+	let sanitized_name = sanitize_filename::sanitize(&name);
+	if sanitized_name.is_empty() || sanitized_name != name {
+		return Err(bad_request(jar, State(state)).await);
+	}
+	
 	let mut buf = PathBuf::from("styles");
 	buf.push(&name);
 
@@ -309,6 +320,11 @@ async fn get_script(
 	State(state): State<Arc<SharedStateStruct>>,
 	Path(name): Path<String>
 ) -> Result<impl IntoResponse, (StatusCode, Html<String>)> {
+	let sanitized_name = sanitize_filename::sanitize(&name);
+	if sanitized_name.is_empty() || sanitized_name != name {
+		return Err(bad_request(jar, State(state)).await);
+	}
+	
 	let mut buf = PathBuf::from("scripts");
 	buf.push(&name);
 
